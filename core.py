@@ -2,6 +2,10 @@ import os
 import numpy as np
 import pandas as pd
 import pysam
+from collections import defaultdict
+import itertools
+
+from scipy.stats import poisson, multinomial
 
 def gather_input(bam_filepath, transcripts_gtf_filepath):
     rpf_counts = list()
@@ -56,17 +60,65 @@ def prob_triplets_given_F_theta_S_E(f):
 
 
 
-def hmm(theta):
-    # Because mu is gamma distributed, find the expected value using the distribution parameters
+def hmm(theta, emissions, states, expression_value):
+    """
+    Emissions are the vector of triplets (X)
+    Hidden states are one of the 9 possible states
+
+    :param theta:
+    :param emissions:
+    :return:
+    """
+    # Find emission probabilities
+    emission_probs = defaultdict(lambda: 0)
+
+    # Get mu for all states
+    # TODO This is a point of dissonance between what I'm seeeing online and what's in the paper
     mu = theta['alpha'] / theta['beta']
+
+    for emission, state in itertools.product(emissions, states):
+        """
+        emission is a vector<int> of size 3 representing RPF counts
+        """
+        prob_Y_given_Z = poisson.pmf(sum(emission), mu[state] * expression_value)
+        prob_X_given_Y_Z = multinomial.pmf(x=emission, n=sum(emission), p=theta['pi'].loc[state])
+        """
+        TODO Does the emission (X) need to be uniquely identified? For example, if two separate emissions are both 
+        (4,5,5) then they will come out with the same emission prob, is that desired?
+        """
+        emission_probs[(emission, state)] = prob_X_given_Y_Z * prob_Y_given_Z
+
+    return emission_probs
+
+
+
+    # Find transition probabilities
 
 
 states = ['5primeUTS', '5primeUTS+', 'TIS', 'TIS+', 'TES', 'TTS-', 'TTS', '3primeUTS-', '3primeUTS']
-theta = pd.DataFrame(
-    np.random.random(size=(9, 5)),
+omega_start = {'AUG', 'CUG', 'GUG', 'UUG', 'AAG', 'ACG'}
+omega_stop = {'UAA', 'UAG', 'UGA'}
+_pi = np.random.randint(1, 5, size=(9, 3))
+_pi = _pi / np.sum(_pi, axis=1, keepdims=True)
+pi = pd.DataFrame(
+    _pi,
     index=states,
-    columns=['pi_1', 'pi_2', 'pi_3', 'alpha', 'beta']
+    columns=[1, 2, 3]
 )
+alpha = pd.Series(np.random.random(9), index=states)
+beta = pd.Series(np.random.random(9), index=states)
+xi_kozak = np.random.random()
+xi_start = pd.Series(np.random.random(len(omega_start)), index=omega_start)
+theta = {
+    'pi': pi,
+    'alpha': alpha,
+    'beta': beta,
+    'xi_kozak': xi_kozak,
+    'xi_start': xi_start
+}
+
+# Set constant probabilities
+pi.loc[['5primeUTS', '5primeUTS+', '3primeUTS-', '3primeUTS']] = 1/3
 
 
 rpf_counts = list()
